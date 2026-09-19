@@ -332,6 +332,7 @@ function App() {
         ref={stageRef}
         width={innerWidth}
         height={innerHeight}
+        style={{ backgroundColor: "#202124", backgroundImage: "radial-gradient(circle, #383a3d 1px, transparent 1px)", backgroundSize: "20px 20px" }}
         onClick={(event) => {
           if (event.target === event.target.getStage()) setSelected(null);
         }}
