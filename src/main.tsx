@@ -332,19 +332,27 @@ function App() {
         ref={stageRef}
         width={innerWidth}
         height={innerHeight}
-        draggable
-        x={position.x}
-        y={position.y}
-        scaleX={scale}
-        scaleY={scale}
         onClick={(event) => {
           if (event.target === event.target.getStage()) setSelected(null);
         }}
-        onDragEnd={(event) => setPosition({ x: event.target.x(), y: event.target.y() })}
+        onDragStart={(event) => {
+          const stage = event.target.getStage();
+          if (stage) stage.container().style.cursor = "grabbing";
+        }}
+        onDragMove={(event) => setPosition({ x: event.target.x(), y: event.target.y() })}
+        onDragEnd={(event) => {
+          setPosition({ x: event.target.x(), y: event.target.y() });
+          const stage = event.target.getStage();
+          if (stage) {
+            stage.position({ x: 0, y: 0 });
+            stage.container().style.cursor = "grab";
+          }
+        }}
         onWheel={onWheel}
         onContextMenu={onContextMenu}
+        draggable
       >
-        <Layer>
+        <Layer x={position.x} y={position.y} scaleX={scale} scaleY={scale}>
           {hasDesign ? (
             <Rect
               x={-1}
