@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import Konva from "konva";
-import { Image as KImage, Layer, Rect, Stage } from "react-konva";
+import { Group, Image as KImage, Layer, Rect, Stage } from "react-konva";
 import { load, save } from "./store";
 import type { SkyDocument, SkyNode } from "./types";
 import "./style.css";
@@ -352,25 +352,32 @@ function App() {
         onContextMenu={onContextMenu}
         draggable
       >
-        <Layer listening={false}>
-          <Rect x={0} y={0} width={innerWidth} height={innerHeight} fill="#202124" />
-        </Layer>
-        <Layer x={position.x} y={position.y} scaleX={scale} scaleY={scale}>
-          {hasDesign ? (
-            <Rect
-              x={-1}
-              y={-1}
-              width={doc.width + 2}
-              height={doc.height + 2}
-              fill={doc.background}
-              shadowColor="#000"
-              shadowBlur={32 / scale}
-              shadowOpacity={0.18}
-            />
-          ) : null}
-          {doc.nodes.map((node) => (
-            <RasterNode key={node.id} node={node} selected={selected === node.id} onSelect={setSelected} />
-          ))}
+        <Layer>
+          <Rect
+            x={-innerWidth * 2}
+            y={-innerHeight * 2}
+            width={innerWidth * 5}
+            height={innerHeight * 5}
+            fill="#202124"
+            listening={false}
+          />
+          <Group x={position.x} y={position.y} scaleX={scale} scaleY={scale}>
+            {hasDesign ? (
+              <Rect
+                x={-1}
+                y={-1}
+                width={doc.width + 2}
+                height={doc.height + 2}
+                fill={doc.background}
+                shadowColor="#000"
+                shadowBlur={32 / scale}
+                shadowOpacity={0.18}
+              />
+            ) : null}
+            {doc.nodes.map((node) => (
+              <RasterNode key={node.id} node={node} selected={selected === node.id} onSelect={setSelected} />
+            ))}
+          </Group>
         </Layer>
       </Stage>
 
