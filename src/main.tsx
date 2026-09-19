@@ -1,25 +1,393 @@
-import React,{useEffect,useMemo,useRef,useState}from"react";
-import{createRoot}from"react-dom/client";
-import Konva from"konva";
-import{Group,Image as KImage,Layer,Rect,Stage,Text}from"react-konva";
-import{load,save}from"./store";
-import type{SkyDocument,SkyNode}from"./types";
-import"./style.css";
-const clamp=(n:number,min:number,max:number)=>Math.min(max,Math.max(min,n));
-function Raster({node,onSelect,selected}:{node:SkyNode;onSelect:(id:string)=>void;selected:boolean}){const[image,setImage]=useState<HTMLImageElement|null>(null);const source=node.src||(node.svg?"data:image/svg+xml;charset=utf-8,"+encodeURIComponent(node.svg):undefined);useEffect(()=>{if(!source)return;const img=new Image();img.onload=()=>setImage(img);img.src=source},[source]);return image?<><KImage image={image} x={node.x} y={node.y} width={node.width} height={node.height} opacity={node.opacity??1} onClick={e=>{e.cancelBubble=true;onSelect(node.id)}}/>{selected&&<Rect x={node.x} y={node.y} width={node.width} height={node.height} stroke="#746bff" strokeWidth={2} dash={[7,5]} listening={false}/>}</>:null}
-function SceneNode({node,onSelect,selectedId}:{node:SkyNode;onSelect:(id:string)=>void;selectedId:string|null}){const selected=selectedId===node.id;if(node.type==="image"||node.type==="svg")return <Raster node={node} onSelect={onSelect} selected={selected}/>;if(node.type==="text")return <><Text x={node.x} y={node.y} width={node.width} height={node.height} text={node.text} fill={node.fill} fontSize={node.fontSize} fontFamily={node.fontFamily} fontStyle={(node.fontWeight??400)>=600?"bold":"normal"} onClick={e=>{e.cancelBubble=true;onSelect(node.id)}}/>{selected&&<Rect x={node.x} y={node.y} width={node.width} height={node.height} stroke="#746bff" strokeWidth={2} dash={[7,5]} listening={false}/>}</>;return <Group x={node.x} y={node.y} onClick={e=>{e.cancelBubble=true;onSelect(node.id)}}><Rect width={node.width} height={node.height} fill={node.fill} cornerRadius={node.radius}/>{node.children?.map(c=><SceneNode key={c.id} node={c} onSelect={onSelect} selectedId={selectedId}/>)}</Group>}
-const bytesToBase64=(b:Uint8Array)=>{let s="";for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode(...b.subarray(i,i+0x8000));return btoa(s).replaceAll("+","-").replaceAll("/","_").replaceAll("=","")};
-async function encodeDocument(d:SkyDocument){const input=new TextEncoder().encode(JSON.stringify(d));if("CompressionStream"in window){const stream=new Blob([input]).stream().pipeThrough(new CompressionStream("gzip"));return"gz."+bytesToBase64(new Uint8Array(await new Response(stream).arrayBuffer()))}return"raw."+bytesToBase64(input)}
-function imageDimensions(src:string){return new Promise<{width:number;height:number}>(resolve=>{const i=new Image();i.onload=()=>resolve({width:i.naturalWidth,height:i.naturalHeight});i.src=src})}
-function App(){const[doc,setDoc]=useState<SkyDocument>(load);const[scale,setScale]=useState(1);const[position,setPosition]=useState({x:innerWidth/2-doc.width/2,y:innerHeight/2-doc.height/2});const[selected,setSelected]=useState<string|null>(null);const[menu,setMenu]=useState<{x:number;y:number;worldX:number;worldY:number}|null>(null);const[notice,setNotice]=useState("Paste a design anywhere");const stageRef=useRef<Konva.Stage|null>(null);const pastePoint=useRef<{x:number;y:number}|null>(null);const hasDesign=doc.nodes.length>0;
-useEffect(()=>save(doc),[doc]);
-const centerAll=()=>{const fit=Math.min(1,(innerWidth-120)/Math.max(doc.width,1),(innerHeight-120)/Math.max(doc.height,1));setScale(fit);setPosition({x:(innerWidth-doc.width*fit)/2,y:(innerHeight-doc.height*fit)/2});setNotice("Centered")};
-const copyLink=async()=>{if(!hasDesign){setNotice("Paste a design first");return}setNotice("Packing design…");const payload=await encodeDocument(doc);await navigator.clipboard.writeText(location.origin+location.pathname+"#design="+payload);setNotice("Design link copied");setMenu(null)};
-useEffect(()=>{const paste=async(event:ClipboardEvent)=>{console.group("[SkyCanvas Paste] native paste event");console.log("event",event);console.log("isTrusted",event.isTrusted);console.log("target",event.target);console.log("activeElement",document.activeElement);const data=event.clipboardData;console.log("clipboardData",data);if(!data){console.error("NO event.clipboardData received");console.groupEnd();return}const types=[...data.types];console.log("native clipboard types",types);console.log("native items",[...data.items].map((i,index)=>({index,kind:i.kind,type:i.type})));console.log("plain text preview",data.getData("text/plain").slice(0,1000));console.log("html preview",data.getData("text/html").slice(0,1000));console.log("svg preview",data.getData("image/svg+xml").slice(0,1000));const at=pastePoint.current??{x:hasDesign?40:0,y:hasDesign?40:0};const addVisual=async(src:string,mime:string,name="Pasted design")=>{const size=await imageDimensions(src);const node:SkyNode={id:crypto.randomUUID(),type:mime.includes("svg")?"svg":"image",name,x:at.x,y:at.y,width:size.width,height:size.height,...(mime.includes("svg")?{svg:decodeURIComponent(src.split(",").slice(1).join(","))}:{src}),metadata:{mime,source:"clipboard",clipboardTypes:types}};setDoc(d=>({...d,id:crypto.randomUUID(),width:Math.max(d.width,at.x+size.width),height:Math.max(d.height,at.y+size.height),nodes:[...d.nodes,node]}));setSelected(node.id);pastePoint.current=null;setNotice("Figma/design pasted");setMenu(null)};const plain=data.getData("text/plain")?.trim();if(plain?.startsWith("{"))try{const raw=JSON.parse(plain);const parsed=(raw?.skycanvasClipboard===1?raw.document:raw)as SkyDocument;if(parsed?.nodes&&parsed.width&&parsed.height){event.preventDefault();const next={...parsed,id:crypto.randomUUID()};setDoc(next);setSelected(null);const fit=Math.min(1,(innerWidth-120)/next.width,(innerHeight-120)/next.height);setScale(fit);setPosition({x:(innerWidth-next.width*fit)/2,y:(innerHeight-next.height*fit)/2});setNotice(raw?.skycanvasClipboard===1?"Figma design imported":"Structured design captured");return}}catch{}const svgText=data.getData("image/svg+xml")||((plain?.startsWith("<svg")||plain?.startsWith("<?xml"))?plain:"");if(svgText){event.preventDefault();await addVisual("data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svgText),"image/svg+xml","Figma vector");return}const html=data.getData("text/html");if(html){const match=html.match(/<svg[\\s\\S]*?<\\/svg>/i);if(match){event.preventDefault();await addVisual("data:image/svg+xml;charset=utf-8,"+encodeURIComponent(match[0]),"image/svg+xml","Figma vector");return}}const imageItem=[...data.items].find(i=>i.type.startsWith("image/"));if(imageItem){event.preventDefault();const file=imageItem.getAsFile();if(!file)return;const src=await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=reject;r.readAsDataURL(file)});await addVisual(src,file.type||imageItem.type);return}console.warn("No supported native paste representation matched",{types});setNotice(types.length?"Clipboard format not supported yet: "+types.join(", "):"Nothing pasteable found");console.groupEnd()};const readClipboard=async()=>{console.group("[SkyCanvas Paste] Async Clipboard API fallback");console.log("navigator.clipboard",navigator.clipboard);console.log("secureContext",window.isSecureContext);console.log("document.hasFocus()",document.hasFocus());try{if(navigator.permissions){try{const permission=await navigator.permissions.query({name:"clipboard-read" as PermissionName});console.log("clipboard-read permission",permission.state)}catch(permissionError){console.warn("permission query failed",permissionError)}}setNotice("Reading clipboard…");console.log("calling navigator.clipboard.read()…");const items=await navigator.clipboard.read();console.log("ClipboardItem count",items.length);items.forEach((item,i)=>console.log("ClipboardItem",i,{types:item.types,presentationStyle:(item as any).presentationStyle,item}));const allTypes=items.flatMap(i=>i.types);console.log("all async clipboard types",allTypes);for(const [itemIndex,item] of items.entries()){console.log("examining item",itemIndex,item.types);for(const type of item.types){try{const blob=await item.getType(type);console.log("blob",itemIndex,type,{size:blob.size,type:blob.type});if(type.startsWith("text/")){const preview=await blob.text();console.log("text preview",type,preview.slice(0,2000))}}catch(typeError){console.error("getType failed",itemIndex,type,typeError)}}const imageType=item.types.find(t=>t.startsWith("image/"));if(imageType){console.log("reading image type",imageType);const blob=await item.getType(imageType);console.log("image blob",{type:blob.type,size:blob.size});const src=await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=reject;r.readAsDataURL(blob)});const size=await imageDimensions(src);const at=pastePoint.current??{x:hasDesign?40:0,y:hasDesign?40:0};const node:SkyNode={id:crypto.randomUUID(),type:"image",name:"Figma clipboard",x:at.x,y:at.y,width:size.width,height:size.height,src,metadata:{mime:imageType,source:"async-clipboard",clipboardTypes:allTypes}};setDoc(d=>({...d,id:crypto.randomUUID(),width:Math.max(d.width,at.x+size.width),height:Math.max(d.height,at.y+size.height),nodes:[...d.nodes,node]}));setSelected(node.id);console.log("SUCCESS inserted async image node",node);setNotice("Figma/design pasted");pastePoint.current=null;console.groupEnd();return}if(item.types.includes("text/plain")){const text=await(await item.getType("text/plain")).text();if(text.trim().startsWith("{"))try{const raw=JSON.parse(text);const parsed=raw?.skycanvasClipboard===1?raw.document:raw;if(parsed?.nodes){setDoc({...parsed,id:crypto.randomUUID()});setNotice("Figma design imported");return}}catch{}}}setNotice(allTypes.length?"Clipboard types: "+allTypes.join(", "):"Clipboard is empty")}catch(error){console.error("[SkyCanvas Paste] navigator.clipboard.read FAILED",error);if(error instanceof Error)console.error("name/message/stack",error.name,error.message,error.stack);setNotice("Clipboard read blocked — see console")}finally{console.groupEnd()}};const key=(e:KeyboardEvent)=>{console.log("[SkyCanvas Paste] keydown",{key:e.key,code:e.code,ctrlKey:e.ctrlKey,metaKey:e.metaKey,shiftKey:e.shiftKey,altKey:e.altKey,isTrusted:e.isTrusted,target:e.target,activeElement:document.activeElement});if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="v"){console.log("[SkyCanvas Paste] CTRL/CMD+V DETECTED — scheduling async clipboard fallback");setTimeout(()=>readClipboard(),0);return}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="c"){e.preventDefault();centerAll();return}if((e.key==="Delete"||e.key==="Backspace")&&selected){e.preventDefault();setDoc(d=>({...d,nodes:d.nodes.filter(n=>n.id!==selected)}));setSelected(null);setNotice("Deleted")}};addEventListener("paste",paste);addEventListener("keydown",key);return()=>{removeEventListener("paste",paste);removeEventListener("keydown",key)}},[selected,hasDesign,doc.width,doc.height]);
-const wheel=(e:Konva.KonvaEventObject<WheelEvent>)=>{e.evt.preventDefault();const stage=stageRef.current,p=stage?.getPointerPosition();if(!p)return;const mouse={x:(p.x-position.x)/scale,y:(p.y-position.y)/scale};const next=clamp(scale*Math.pow(1.12,e.evt.deltaY>0?-1:1),.05,8);setScale(next);setPosition({x:p.x-mouse.x*next,y:p.y-mouse.y*next})};
-const context=(e:Konva.KonvaEventObject<PointerEvent>)=>{e.evt.preventDefault();const stage=stageRef.current,p=stage?.getPointerPosition();if(!p)return;setMenu({x:e.evt.clientX,y:e.evt.clientY,worldX:(p.x-position.x)/scale,worldY:(p.y-position.y)/scale})};
-const pasteHere=async()=>{if(!menu)return;pastePoint.current={x:menu.worldX,y:menu.worldY};setMenu(null);setNotice("Press Ctrl + V to paste here");try{const items=await navigator.clipboard.read();for(const item of items){const type=item.types.find(t=>t.startsWith("image/"));if(type){const blob=await item.getType(type);const dt=new DataTransfer();dt.items.add(new File([blob],"pasted",{type}));document.dispatchEvent(new ClipboardEvent("paste",{clipboardData:dt}));break}}}catch{}};
-const copyMcp=async()=>{await navigator.clipboard.writeText(JSON.stringify({mcpServers:{skycanvas:{command:"npm",args:["run","mcp"],cwd:"/path/to/skycanvas"}}},null,2));setNotice("MCP config copied")};
-const zoomLabel=useMemo(()=>Math.round(scale*100)+"%",[scale]);
-return <main className="app" onClick={()=>setMenu(null)}><Stage ref={stageRef} width={innerWidth} height={innerHeight} draggable x={position.x} y={position.y} scaleX={scale} scaleY={scale} onClick={e=>{if(e.target===e.target.getStage())setSelected(null)}} onDragEnd={e=>setPosition({x:e.target.x(),y:e.target.y()})} onWheel={wheel} onContextMenu={context}><Layer>{hasDesign&&<Rect x={-1} y={-1} width={doc.width+2} height={doc.height+2} fill={doc.background} shadowColor="#000" shadowBlur={32/scale} shadowOpacity={.18}/>}{doc.nodes.map(n=><SceneNode key={n.id} node={n} onSelect={setSelected} selectedId={selected}/>)}</Layer></Stage>{!hasDesign&&<div className="empty"><div className="mark">S</div><h1>Paste your design</h1><p>Copy a design and press <kbd>Ctrl</kbd> + <kbd>V</kbd></p><small>Right-click anywhere for canvas actions.</small></div>}<div className="brand">SKYCANVAS <span>α</span></div><div className="controls"><button onClick={e=>{e.stopPropagation();copyMcp()}}><i className="dot"/> MCP</button><button onClick={e=>{e.stopPropagation();copyLink()}} className="share" disabled={!hasDesign}>Copy design link</button></div>{menu&&<div className="context" style={{left:menu.x,top:menu.y}} onClick={e=>e.stopPropagation()}><button onClick={pasteHere}>Paste here <kbd>Ctrl V</kbd></button><button onClick={copyLink} disabled={!hasDesign}>Copy design link</button></div>}<div className="status"><span>{notice}</span><b>{zoomLabel}</b></div></main>}
-createRoot(document.getElementById("root")!).render(<App/>);
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+import Konva from "konva";
+import { Image as KImage, Layer, Rect, Stage } from "react-konva";
+import { load, save } from "./store";
+import type { SkyDocument, SkyNode } from "./types";
+import "./style.css";
+
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+
+function imageDimensions(src: string) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
+function RasterNode({
+  node,
+  selected,
+  onSelect,
+}: {
+  node: SkyNode;
+  selected: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const source = node.src || (node.svg ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(node.svg) : "");
+
+  useEffect(() => {
+    if (!source) return;
+    const next = new Image();
+    next.onload = () => setImage(next);
+    next.src = source;
+  }, [source]);
+
+  if (!image) return null;
+
+  return (
+    <>
+      <KImage
+        image={image}
+        x={node.x}
+        y={node.y}
+        width={node.width}
+        height={node.height}
+        opacity={node.opacity ?? 1}
+        onClick={(event) => {
+          event.cancelBubble = true;
+          onSelect(node.id);
+        }}
+      />
+      {selected ? (
+        <Rect
+          x={node.x}
+          y={node.y}
+          width={node.width}
+          height={node.height}
+          stroke="#746bff"
+          strokeWidth={2}
+          dash={[7, 5]}
+          listening={false}
+        />
+      ) : null}
+    </>
+  );
+}
+
+const bytesToBase64 = (bytes: Uint8Array) => {
+  let result = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    result += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(result).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+};
+
+async function encodeDocument(document: SkyDocument) {
+  const input = new TextEncoder().encode(JSON.stringify(document));
+  if ("CompressionStream" in window) {
+    const stream = new Blob([input]).stream().pipeThrough(new CompressionStream("gzip"));
+    const compressed = new Uint8Array(await new Response(stream).arrayBuffer());
+    return "gz." + bytesToBase64(compressed);
+  }
+  return "raw." + bytesToBase64(input);
+}
+
+function App() {
+  const [doc, setDoc] = useState<SkyDocument>(load);
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: innerWidth / 2 - doc.width / 2, y: innerHeight / 2 - doc.height / 2 });
+  const [selected, setSelected] = useState<string | null>(null);
+  const [notice, setNotice] = useState("Paste a design anywhere");
+  const [menu, setMenu] = useState<{ x: number; y: number; worldX: number; worldY: number } | null>(null);
+  const stageRef = useRef<Konva.Stage | null>(null);
+  const pastePoint = useRef<{ x: number; y: number } | null>(null);
+  const hasDesign = doc.nodes.length > 0;
+
+  useEffect(() => save(doc), [doc]);
+
+  const centerAll = () => {
+    const fit = Math.min(1, (innerWidth - 120) / Math.max(doc.width, 1), (innerHeight - 120) / Math.max(doc.height, 1));
+    setScale(fit);
+    setPosition({ x: (innerWidth - doc.width * fit) / 2, y: (innerHeight - doc.height * fit) / 2 });
+    setNotice("Centered");
+  };
+
+  const insertImage = async (src: string, mime: string, clipboardTypes: string[]) => {
+    console.log("[SkyCanvas Paste] insertImage", { mime, clipboardTypes, srcLength: src.length });
+    const size = await imageDimensions(src);
+    const at = pastePoint.current ?? { x: hasDesign ? 40 : 0, y: hasDesign ? 40 : 0 };
+    const node: SkyNode = {
+      id: crypto.randomUUID(),
+      type: "image",
+      name: "Pasted design",
+      x: at.x,
+      y: at.y,
+      width: size.width,
+      height: size.height,
+      src,
+      metadata: { mime, source: "clipboard", clipboardTypes },
+    };
+    setDoc((current) => ({
+      ...current,
+      id: crypto.randomUUID(),
+      width: Math.max(current.width, at.x + size.width),
+      height: Math.max(current.height, at.y + size.height),
+      nodes: [...current.nodes, node],
+    }));
+    setSelected(node.id);
+    pastePoint.current = null;
+    setNotice("Figma/design pasted");
+    console.log("[SkyCanvas Paste] SUCCESS", node);
+  };
+
+  const importText = (text: string) => {
+    console.log("[SkyCanvas Paste] attempting structured text", text.slice(0, 2000));
+    try {
+      const raw = JSON.parse(text);
+      const parsed = raw?.skycanvasClipboard === 1 ? raw.document : raw;
+      if (parsed?.nodes && parsed?.width && parsed?.height) {
+        setDoc({ ...parsed, id: crypto.randomUUID() });
+        setSelected(null);
+        setNotice(raw?.skycanvasClipboard === 1 ? "Figma design imported" : "Structured design captured");
+        console.log("[SkyCanvas Paste] structured import SUCCESS", parsed);
+        return true;
+      }
+    } catch (error) {
+      console.warn("[SkyCanvas Paste] text was not SkyCanvas JSON", error);
+    }
+    return false;
+  };
+
+  const readClipboardFallback = async () => {
+    console.group("[SkyCanvas Paste] Async Clipboard API");
+    console.log("secureContext", window.isSecureContext);
+    console.log("hasFocus", document.hasFocus());
+    console.log("navigator.clipboard", navigator.clipboard);
+    try {
+      setNotice("Reading clipboard...");
+      const items = await navigator.clipboard.read();
+      console.log("item count", items.length);
+      for (const [index, item] of items.entries()) {
+        console.log("item", index, "types", item.types);
+        for (const type of item.types) {
+          const blob = await item.getType(type);
+          console.log("blob", { index, type, size: blob.size, blobType: blob.type });
+          if (type.startsWith("text/")) {
+            const text = await blob.text();
+            console.log("text preview", type, text.slice(0, 2000));
+            if (type === "text/plain" && importText(text)) return;
+          }
+        }
+        const imageType = item.types.find((type) => type.startsWith("image/"));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const src = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          await insertImage(src, imageType, item.types);
+          return;
+        }
+      }
+      const allTypes = items.flatMap((item) => item.types);
+      console.warn("[SkyCanvas Paste] no supported async clipboard representation", allTypes);
+      setNotice(allTypes.length ? "Clipboard types: " + allTypes.join(", ") : "Clipboard is empty");
+    } catch (error) {
+      console.error("[SkyCanvas Paste] async clipboard FAILED", error);
+      setNotice("Clipboard read failed - see console");
+    } finally {
+      console.groupEnd();
+    }
+  };
+
+  useEffect(() => {
+    const onPaste = async (event: ClipboardEvent) => {
+      console.group("[SkyCanvas Paste] Native paste event");
+      const data = event.clipboardData;
+      console.log("event", event);
+      console.log("clipboardData", data);
+      if (!data) {
+        console.error("[SkyCanvas Paste] clipboardData missing");
+        console.groupEnd();
+        return;
+      }
+
+      const types = Array.from(data.types);
+      console.log("types", types);
+      console.log("items", Array.from(data.items).map((item) => ({ kind: item.kind, type: item.type })));
+
+      const plain = data.getData("text/plain");
+      const html = data.getData("text/html");
+      const svg = data.getData("image/svg+xml");
+      console.log("text/plain preview", plain.slice(0, 2000));
+      console.log("text/html preview", html.slice(0, 2000));
+      console.log("image/svg+xml preview", svg.slice(0, 2000));
+
+      if (plain && importText(plain)) {
+        event.preventDefault();
+        console.groupEnd();
+        return;
+      }
+
+      const imageItem = Array.from(data.items).find((item) => item.type.startsWith("image/"));
+      if (imageItem) {
+        event.preventDefault();
+        const file = imageItem.getAsFile();
+        console.log("native image file", file);
+        if (file) {
+          const src = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          await insertImage(src, file.type || imageItem.type, types);
+        }
+        console.groupEnd();
+        return;
+      }
+
+      console.warn("[SkyCanvas Paste] native paste had no supported representation", types);
+      setNotice(types.length ? "Clipboard types: " + types.join(", ") : "Nothing pasteable found");
+      console.groupEnd();
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+        console.log("[SkyCanvas Paste] CTRL/CMD+V keydown", {
+          key: event.key,
+          code: event.code,
+          isTrusted: event.isTrusted,
+          activeElement: document.activeElement,
+        });
+        window.setTimeout(readClipboardFallback, 100);
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        centerAll();
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && selected) {
+        event.preventDefault();
+        setDoc((current) => ({ ...current, nodes: current.nodes.filter((node) => node.id !== selected) }));
+        setSelected(null);
+        setNotice("Deleted");
+      }
+    };
+
+    window.addEventListener("paste", onPaste);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("paste", onPaste);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  });
+
+  const copyLink = async () => {
+    if (!hasDesign) return setNotice("Paste a design first");
+    const payload = await encodeDocument(doc);
+    await navigator.clipboard.writeText(location.origin + location.pathname + "#design=" + payload);
+    setNotice("Design link copied");
+    setMenu(null);
+  };
+
+  const onWheel = (event: Konva.KonvaEventObject<WheelEvent>) => {
+    event.evt.preventDefault();
+    const pointer = stageRef.current?.getPointerPosition();
+    if (!pointer) return;
+    const mouse = { x: (pointer.x - position.x) / scale, y: (pointer.y - position.y) / scale };
+    const next = clamp(scale * Math.pow(1.12, event.evt.deltaY > 0 ? -1 : 1), 0.05, 8);
+    setScale(next);
+    setPosition({ x: pointer.x - mouse.x * next, y: pointer.y - mouse.y * next });
+  };
+
+  const onContextMenu = (event: Konva.KonvaEventObject<PointerEvent>) => {
+    event.evt.preventDefault();
+    const pointer = stageRef.current?.getPointerPosition();
+    if (!pointer) return;
+    setMenu({
+      x: event.evt.clientX,
+      y: event.evt.clientY,
+      worldX: (pointer.x - position.x) / scale,
+      worldY: (pointer.y - position.y) / scale,
+    });
+  };
+
+  const pasteHere = () => {
+    if (!menu) return;
+    pastePoint.current = { x: menu.worldX, y: menu.worldY };
+    setMenu(null);
+    setNotice("Press Ctrl + V to paste here");
+  };
+
+  const copyMcp = async () => {
+    await navigator.clipboard.writeText(JSON.stringify({
+      mcpServers: { skycanvas: { command: "npm", args: ["run", "mcp"], cwd: "/path/to/skycanvas" } },
+    }, null, 2));
+    setNotice("MCP config copied");
+  };
+
+  const zoomLabel = useMemo(() => Math.round(scale * 100) + "%", [scale]);
+
+  return (
+    <main className="app" onClick={() => setMenu(null)}>
+      <Stage
+        ref={stageRef}
+        width={innerWidth}
+        height={innerHeight}
+        draggable
+        x={position.x}
+        y={position.y}
+        scaleX={scale}
+        scaleY={scale}
+        onClick={(event) => {
+          if (event.target === event.target.getStage()) setSelected(null);
+        }}
+        onDragEnd={(event) => setPosition({ x: event.target.x(), y: event.target.y() })}
+        onWheel={onWheel}
+        onContextMenu={onContextMenu}
+      >
+        <Layer>
+          {hasDesign ? (
+            <Rect
+              x={-1}
+              y={-1}
+              width={doc.width + 2}
+              height={doc.height + 2}
+              fill={doc.background}
+              shadowColor="#000"
+              shadowBlur={32 / scale}
+              shadowOpacity={0.18}
+            />
+          ) : null}
+          {doc.nodes.map((node) => (
+            <RasterNode key={node.id} node={node} selected={selected === node.id} onSelect={setSelected} />
+          ))}
+        </Layer>
+      </Stage>
+
+      {!hasDesign ? (
+        <div className="empty">
+          <div className="mark">S</div>
+          <h1>Paste your design</h1>
+          <p>Copy a design and press <kbd>Ctrl</kbd> + <kbd>V</kbd></p>
+          <small>Right-click anywhere for canvas actions.</small>
+        </div>
+      ) : null}
+
+      <div className="brand">SKYCANVAS <span>alpha</span></div>
+      <div className="controls">
+        <button onClick={(event) => { event.stopPropagation(); void copyMcp(); }}><i className="dot" /> MCP</button>
+        <button onClick={(event) => { event.stopPropagation(); void copyLink(); }} className="share" disabled={!hasDesign}>Copy design link</button>
+      </div>
+
+      {menu ? (
+        <div className="context" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
+          <button onClick={pasteHere}>Paste here <kbd>Ctrl V</kbd></button>
+          <button onClick={() => void copyLink()} disabled={!hasDesign}>Copy design link</button>
+        </div>
+      ) : null}
+
+      <div className="status"><span>{notice}</span><b>{zoomLabel}</b></div>
+    </main>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<App />);
