@@ -106,7 +106,7 @@ function App() {
     setNotice("Centered");
   };
 
-  const insertImage = async (src: string, mime: string, clipboardTypes: string[]) => {
+  const insertImage = async (src: string, mime: string, clipboardTypes: readonly string[]) => {
     console.log("[SkyCanvas Paste] insertImage", { mime, clipboardTypes, srcLength: src.length });
     const size = await imageDimensions(src);
     const at = pastePoint.current ?? { x: hasDesign ? 40 : 0, y: hasDesign ? 40 : 0 };
@@ -119,7 +119,7 @@ function App() {
       width: size.width,
       height: size.height,
       src,
-      metadata: { mime, source: "clipboard", clipboardTypes },
+      metadata: { mime, source: "clipboard", clipboardTypes: Array.from(clipboardTypes) },
     };
     setDoc((current) => ({
       ...current,
