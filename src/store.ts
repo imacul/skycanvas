@@ -1,1 +1,23 @@
-import type{SkyDocument}from"./types";export const starter:SkyDocument={version:1,id:"demo",name:"SkyCanvas Design",width:1440,height:900,background:"#f5f5f5",nodes:[{id:"hero",type:"frame",name:"Hero",x:120,y:100,width:1200,height:700,fill:"#111318",radius:32,children:[]},{id:"title",type:"text",name:"Title",x:200,y:190,width:720,height:100,text:"Paste. Share. Build.",fontSize:64,fontFamily:"Inter",fontWeight:700,fill:"#ffffff"},{id:"sub",type:"text",name:"Subtitle",x:205,y:305,width:650,height:80,text:"A design canvas built for humans and coding agents.",fontSize:24,fontFamily:"Inter",fontWeight:400,fill:"#a8acb7"}]};export const load=()=>{try{return JSON.parse(localStorage.getItem("skycanvas:document")||"") as SkyDocument}catch{return starter}};export const save=(d:SkyDocument)=>localStorage.setItem("skycanvas:document",JSON.stringify(d));
+import type { SkyDocument } from "./types";
+
+export const starter: SkyDocument = {
+  version: 1,
+  id: crypto.randomUUID(),
+  name: "Untitled design",
+  width: 1440,
+  height: 900,
+  background: "#ffffff",
+  nodes: [],
+};
+
+export const load = (): SkyDocument => {
+  try {
+    const raw = localStorage.getItem("skycanvas:document");
+    return raw ? (JSON.parse(raw) as SkyDocument) : starter;
+  } catch {
+    return starter;
+  }
+};
+
+export const save = (document: SkyDocument) =>
+  localStorage.setItem("skycanvas:document", JSON.stringify(document));
