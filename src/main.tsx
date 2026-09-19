@@ -332,7 +332,6 @@ function App() {
         ref={stageRef}
         width={innerWidth}
         height={innerHeight}
-        style={{ backgroundColor: "#202124", backgroundImage: "radial-gradient(circle, #383a3d 1px, transparent 1px)", backgroundSize: "20px 20px" }}
         onClick={(event) => {
           if (event.target === event.target.getStage()) setSelected(null);
         }}
@@ -353,6 +352,9 @@ function App() {
         onContextMenu={onContextMenu}
         draggable
       >
+        <Layer listening={false}>
+          <Rect x={0} y={0} width={innerWidth} height={innerHeight} fill="#202124" />
+        </Layer>
         <Layer x={position.x} y={position.y} scaleX={scale} scaleY={scale}>
           {hasDesign ? (
             <Rect
