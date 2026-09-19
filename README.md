@@ -1,5 +1,7 @@
 # SkyCanvas
 
+> Live development build: https://imacul.github.io/skycanvas/
+
 Agent-first design canvas and Figma bridge.
 
 ## Tonight's MVP
